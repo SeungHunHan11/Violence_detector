@@ -14,16 +14,20 @@ from sklearn import model_selection, metrics
 import sys
 from glob import glob
 import pandas as pd 
+import argparse
+from utils import TaskDataset, capture
+from model import CNN_Vit
+
 
 sys.path.append('./violence')
 
-from utils import TaskDataset, capture
 
-from model import CNN_Vit
 
-#__file__='train.py'
-#ROOT = Path(os.path.dirname(os.path.realpath('__file__'))).absolute()
-#ROOT = Path(os.path.abspath(os.path.join('/',ROOT))) 
+__file__='train.py'
+ROOT = Path(os.path.dirname(os.path.realpath('__file__'))).absolute()
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+ROOT = Path(os.path.abspath(os.path.join('/',ROOT))) 
 
 
 def loading(train_mode=True,numwork=8,batchsize=4,pin=True,droplast=True,isshuffle=True):
@@ -48,20 +52,7 @@ def loading(train_mode=True,numwork=8,batchsize=4,pin=True,droplast=True,isshuff
 
     return loader
 
-t_loader=loading()
-v_loader=loading(train_mode=False)
 
-
-model=CNN_Vit()
-criterion= nn.CrossEntropyLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr=0.0001,momentum=0.5)
-sched =  lr_scheduler.ReduceLROnPlateau(optimizer,mode='min', factor=0.5, patience=2 , verbose=True)
-epochs=50
-device =  'cuda' if torch.cuda.is_available() else 'cpu'
-
-torch.cuda.empty_cache()
-
-t_loader
 
 def train(model,train_loader,val_loader,optimizer,loss_fn, device,epochs,scheduler):
 
@@ -139,5 +130,46 @@ def train(model,train_loader,val_loader,optimizer,loss_fn, device,epochs,schedul
         last_path=os.path.join('violence/best_param/last.pt')
         torch.save(model.state_dict(),last_path)
 
+parser = argparse.ArgumentParser()
 
-train(model,t_loader,v_loader,optimizer,criterion,device,epochs,sched)
+parser.add_argument(
+    '--epochs',
+    type=int,
+    default=50,
+    help='Set number of epochs'
+    )
+
+parser.add_argument(
+    '--device',
+    type=str,
+    default='cuda',
+    help='cuda for gpu else cpu'
+    )
+
+args=vars(parser.parse_args())
+
+
+if __name__ =='__main__':
+    
+    t_loader=loading()
+    v_loader=loading(train_mode=False)    
+
+
+    if args['device']=='cuda' and torch.cuda.is_available():
+        device='cuda'
+
+    else:
+        device='cpu'
+
+
+    model=CNN_Vit()
+    criterion= nn.CrossEntropyLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0001,momentum=0.5)
+    sched =  lr_scheduler.ReduceLROnPlateau(optimizer,mode='min', factor=0.5, patience=2 , verbose=True)
+    epochs=args['epochs']
+
+    torch.cuda.empty_cache()
+
+    train(model,t_loader,v_loader,optimizer,criterion,device,epochs,sched)
+    
+    

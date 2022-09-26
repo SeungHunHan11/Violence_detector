@@ -10,29 +10,27 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 
 
-def capture(feed=0):
+def capture(frame):
+    
+    '''
+    Transforming feeded image to array
+    
+    Insert frame with cv2 videocapture frame format
+    
+    Press q to exit
+    '''
 
-    cap=cv2.VideoCapture(feed)
+    h,w,rgb=frame.shape
+    frm = np.reshape(frame,(rgb,h,w))
+    #frm=frame 
+    frm = np.expand_dims(frm,axis=0)
+    #frm = np.moveaxis(frm, -1, 1)
+    if(np.max(frm)>1):
+        frm = frm/255.0
 
-    if cap.isOpened():
-        rval , frame = cap.read()
-        h,w,rgb=frame.shape
-        frm = np.reshape(frame,(rgb,h,w))
-        #frm=frame 
-        #frm = np.expand_dims(frm,axis=0)
-        #frm = np.moveaxis(frm, -1, 1)
-        if(np.max(frm)>1):
-            frm = frm/255.0
 
-        del rval
+    return frm
 
-        return frm
-
-    else:
-        print('Video Feed not opened')
-
-    cap.release()
-    cv2.destroyAllWindows()
 
 class TaskDataset(Dataset):
     def __init__(self, datas,h=1080,w=192,dotransform=True):
