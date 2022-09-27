@@ -4,7 +4,9 @@ import torch
 from torch.nn import functional as F
 from torch import nn
 import math
+import sys
 
+sys.path.append('./Violence_detector')
 
 class base(nn.Module):
     def __init__(self, model='vgg19_bn',num_class=512):
@@ -12,34 +14,34 @@ class base(nn.Module):
         self.baseModel  =  timm.create_model(model, pretrained=True,num_classes=num_class)
 
     def forward(self,x):
-        batch_size, C,H, W = x.size()
-        self.x=x.contiguous().view(batch_size,C,H,W)
-        extracted=self.baseModel(self.x).contiguous().view(batch_size,-1)
+        batch_size,timestep, C,H, W = x.size()
+        self.x=x.contiguous().view(batch_size*timestep,C,H,W)
+        self.x=self.baseModel(self.x)
+        extracted=self.x.contiguous().view(batch_size,timestep,self.x.size(-1))
         
         return extracted
 
-
 class Pos_embedding(nn.Module):
-    def __init__(self, dev , dim_emb=512,dropout=0.1):
+    def __init__(self, dev , dim_emb=512,dropout=0.1,timestep=30):
         super(Pos_embedding,self).__init__()
         self.dropout=nn.Dropout(p=dropout)
         self.dim_emb=dim_emb
         self.dev=dev
+        self.timestep=timestep
     def forward(self, x):
-        batch_size=x.shape[0]
-        pe=torch.zeros(batch_size,self.dim_emb).to(self.dev)
 
-        for batch in range(batch_size):
+        pe=torch.zeros(self.timestep,self.dim_emb).to(self.dev)
+
+        for pos in range(self.timestep):
             for i in range(0,self.dim_emb,2):
-                pe[batch,i] = math.sin(batch/(10000**((2*i)/self.dim_emb)))
-                pe[batch,i+1] = math.cos(batch/(10000**((2*(i+1))/self.dim_emb)))
+                pe[pos,i] = math.sin(pos/(10000**((2*i)/self.dim_emb)))
+                pe[pos,i+1] = math.cos(pos/(10000**((2*(i+1))/self.dim_emb)))
 
         x= x*math.sqrt(self.dim_emb)
-
+        pe=pe.unsqueeze(0)
         x+= pe[:,:x.size(1)]
         x=self.dropout(x)
-        
-
+    
         return x
 
 class Transformer(nn.Module):
@@ -54,8 +56,8 @@ class Transformer(nn.Module):
         return x
     
 class CNN_Vit(nn.Module):
-    def __init__(self,dev,basemodel='vgg19_bn',dim_emb=512,
-    mid_layer=1024,dropout=0.1,
+    def __init__(self,dev,timestep=30,basemodel='vgg19_bn',dim_emb=512,
+    mid_layer=1024,dropout=0.4,
     classes=2, encoder_layernum=6, 
     encoder_heads=8,activation='gelu'):
         super(CNN_Vit,self).__init__()
@@ -70,10 +72,10 @@ class CNN_Vit(nn.Module):
         #self.linear2=nn.Linear(mid_layer,classes)
 
         self.model=nn.Sequential(base(model=basemodel, num_class=dim_emb),
-                            Pos_embedding(dev,dim_emb,dropout),
+                            Pos_embedding(dev,dim_emb,dropout,timestep),
                             Transformer(dim_emb,head=encoder_heads,layers=encoder_layernum,actv=activation),
                             nn.Flatten(),
-                            nn.Linear(dim_emb,mid_layer),
+                            nn.Linear(timestep*dim_emb,mid_layer),
                             nn.Dropout(dropout),
                             nn.ReLU(),
                             nn.Linear(mid_layer,classes)
