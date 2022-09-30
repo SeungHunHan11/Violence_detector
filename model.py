@@ -22,7 +22,7 @@ class base(nn.Module):
         return extracted
 
 class Pos_embedding(nn.Module):
-    def __init__(self, dev , dim_emb=512,dropout=0.1,timestep=30):
+    def __init__(self, dev , dim_emb=512,dropout=0.4,timestep=30):
         super(Pos_embedding,self).__init__()
         self.dropout=nn.Dropout(p=dropout)
         self.dim_emb=dim_emb
@@ -56,10 +56,10 @@ class Transformer(nn.Module):
         return x
     
 class CNN_Vit(nn.Module):
-    def __init__(self,dev,timestep=30,basemodel='vgg19_bn',dim_emb=512,
+    def __init__(self,dev,timestep=40,basemodel='vgg19_bn',dim_emb=512,
     mid_layer=1024,dropout=0.4,
-    classes=2, encoder_layernum=6, 
-    encoder_heads=8,activation='gelu'):
+    classes=1, encoder_layernum=6, 
+    encoder_heads=8,activation='relu'):
         super(CNN_Vit,self).__init__()
         
         #self.Base=base(model=basemodel, num_class=dim_emb)
@@ -92,4 +92,5 @@ class CNN_Vit(nn.Module):
         #=self.relu(x)
         #x=self.linear2(x)
         x=self.model(x)
+        
         return x

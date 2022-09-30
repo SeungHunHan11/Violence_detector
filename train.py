@@ -16,7 +16,8 @@ from glob import glob
 import pandas as pd 
 import argparse
 import warnings
-
+import numpy as np
+import random
 sys.path.append('./Violence_detector')
 
 from utils import TaskDataset,path_list
@@ -29,9 +30,17 @@ if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))
 ROOT = Path(os.path.abspath(os.path.join('/',ROOT))) 
 
+def seed_everything(seed):
 
-def loading(df,rgb=3,h=200,w=200,timestep=30,
-numwork=8,batchsize=4,pin=True,droplast=True,isshuffle=False,splitsize=0.2):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+
+def loading(df,rgb=3,h=200,w=200,timestep=40,
+numwork=4,batchsize=2,pin=True,droplast=True,isshuffle=False,splitsize=0.4):
 
     #vio=glob(os.path.join(ROOT/'dataset/train/10_FPS/violent/*jpg'))
     #novio=glob(os.path.join(ROOT/'dataset/train/10_FPS/non_violent/*jpg'))
@@ -49,7 +58,7 @@ numwork=8,batchsize=4,pin=True,droplast=True,isshuffle=False,splitsize=0.2):
     #set=pd.concat([vio_df,novio_df],axis=0)
 
     train_df, valid_df = model_selection.train_test_split(
-        df, test_size=splitsize, random_state=42
+        df, test_size=splitsize, random_state=42,stratify=df.iloc[:,1]
     )
 
     t_loader = DataLoader(dataset=TaskDataset(train_df,timestep,rgb,h,w),
@@ -66,7 +75,10 @@ numwork=8,batchsize=4,pin=True,droplast=True,isshuffle=False,splitsize=0.2):
 
 
 def train(model,train_loader,val_loader,optimizer,
-loss_fn, device,epochs,scheduler):
+loss_fn, device,epochs,scheduler,threshold):
+
+    threshold = torch.tensor([threshold]).to(dtype=torch.float32,device=device)
+
 
     print('Training with {}'.format(device))
     model.to(device)
@@ -80,21 +92,24 @@ loss_fn, device,epochs,scheduler):
         for idx, (xx,labels) in enumerate(train_loader):
 
             xx=torch.as_tensor(xx,device=device,dtype=torch.float32)
-            labels=torch.as_tensor(labels,device=device,dtype=torch.long)
 
             optimizer.zero_grad()
-
-            pred=model(xx) 
-            loss= loss_fn(pred,labels.view(-1))
             
-            pred_label=torch.argmax(pred,dim=1)
+            labels=torch.as_tensor(labels,device=device,dtype=torch.float).view(-1,1)
+            pred=model(xx) 
+            loss= loss_fn(pred,labels)
 
-            acc+=((pred_label==labels).sum().item()/len(labels))
+
+            pred_label=torch.sigmoid(pred)
+
+            final_label=(pred_label>threshold).float()*1
+
+            acc+=(torch.sum(final_label==labels).item()/len(labels))
 
             loss.backward()
             optimizer.step()
 
-            if idx%300==0:
+            if idx%500==0:
                 print('Train Accuracy at {} batch: {:.4f}'.format(idx,acc/((idx+1))))
 
 
@@ -107,16 +122,17 @@ loss_fn, device,epochs,scheduler):
             for idx,(xx,labels) in enumerate(val_loader):
 
                 xx=torch.as_tensor(xx,device=device,dtype=torch.float32)
-                labels=torch.as_tensor(labels,device=device,dtype=torch.long)
-
+                labels=torch.as_tensor(labels,device=device,dtype=torch.float).view(-1,1)
                 pred=model(xx) 
-                loss= loss_fn(pred,labels.view(-1))
+                loss= loss_fn(pred,labels)
                 val_loss+=loss
 
-                pred_label=torch.argmax(pred,dim=1)
-                val_acc+=((pred_label==labels).sum().item()/len(labels))
+                pred_label=torch.sigmoid(pred)
+                final_label=(pred_label>threshold).float()*1
+                val_acc+=(torch.sum(final_label==labels).item()/len(labels))
+
                 
-                if idx%200==0:
+                if idx%300==0:
                     print('Validation Accuracy at {} batch: {:.4f}'.format(idx,val_acc/((idx+1))))
         
         val_acc/=(idx+1)
@@ -129,19 +145,18 @@ loss_fn, device,epochs,scheduler):
             best_val_loss=val_loss
             best_val_acc=val_acc
 
-        if best_val_acc<val_acc:
-            best_val_acc=val_acc
-
         if best_val_loss>=val_loss:
             best_val_loss=val_loss
+            best_val_acc=val_acc
 
             best_path=os.path.join(ROOT/'best_param/best.pt')
 
             print('Best Result renewed')
 
-            print("Current Best Loss is {:.4f} & Accuracy is {:.4f}".format(best_val_loss,best_val_acc))
 
             torch.save(model.state_dict(),best_path)
+        
+        print("Current Best Loss is {:.4f} & Accuracy is {:.4f}".format(best_val_loss,best_val_acc))
 
         last_path=os.path.join(ROOT/'best_param/last.pt')
         torch.save(model.state_dict(),last_path)
@@ -183,12 +198,35 @@ parser.add_argument(
     help='Video Source Path'
     )  
 
+parser.add_argument(
+    '--threshold',
+    type=float,
+    default=0.6,
+    help='Set threshold'
+    )  
+
+parser.add_argument(
+    '--timestep',
+    type=int,
+    default=30,
+    help='Set Timestep'
+    )  
+
+parser.add_argument(
+    '--dropout',
+    type=float,
+    default=0.4,
+    help='Set Dropout rate'
+    )  
+
 args=vars(parser.parse_args())
 
 
 if __name__ =='__main__':
 
     warnings.filterwarnings("ignore")
+    
+    seed_everything(1001)
 
     try:
         df=pd.read_csv(os.path.join(ROOT/args['sourcename']))
@@ -198,24 +236,27 @@ if __name__ =='__main__':
 
         df=pd.read_csv(os.path.join(ROOT/args['sourcename']))
 
-    t_loader,v_loader=loading(df=df,batchsize=args['batch'],numwork=args['numwork'])
+    t_loader,v_loader=loading(df=df,batchsize=args['batch'],numwork=args['numwork'],
+    timestep=args['timestep'])
 
     if args['device']=='cuda' and torch.cuda.is_available():
         device='cuda'
 
     else:
         device='cpu'
+        print('Using CPU')
 
 
-    model=CNN_Vit(dev=device,timestep=30,dropout=0.4)
-    criterion= nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.0001,momentum=0.5)
+    model=CNN_Vit(dev=device,timestep=args['timestep'],dropout=args['dropout'])
+    criterion= nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.001,momentum=0.0001)
     sched =  lr_scheduler.ReduceLROnPlateau(optimizer,mode='min', factor=0.5, patience=2 , verbose=True)
     epochs=args['epochs']
+    threshold=args['threshold']
 
     torch.cuda.empty_cache()
 
     train(model,t_loader,v_loader,optimizer,
-    criterion,device,epochs,sched)
+    criterion,device,epochs,sched,threshold)
 
 # python train.py --epochs 50 --batch 4 --numwork 8

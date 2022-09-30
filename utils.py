@@ -126,3 +126,44 @@ class TaskDataset(Dataset):
         video = capture(self.dataloctions.iloc[idx, 0],self.timesep,self.rgb,self.h,self.w)
 
         return torch.from_numpy(video), torch.from_numpy(np.asarray(self.dataloctions.iloc[idx, 1]))
+    
+    
+
+def infer_capture(cap,timesep,rgb,h,w):
+
+    '''
+    Transforming feeded image to array
+    
+    Insert frame with cv2 videocapture frame format
+    
+    Press q to exit
+    '''
+    tmp = []
+    frames = np.zeros((timesep,rgb,h,w), dtype=np.float)
+    i=0
+
+    if cap.isOpened():
+        rval , frame = cap.read()
+    else:
+        rval = False
+    frm = resize(frame,(h, w,rgb))
+    frm = np.expand_dims(frm,axis=0)
+    frm = np.moveaxis(frm, -1, 1)
+    if(np.max(frm)>1):
+        frm = frm/255.0
+    frames[i][:] = frm
+    i +=1
+
+    while i<timesep:
+        tmp[:] = frm[:]
+        rval , frame =cap.read()
+        frm = resize(frame,(h, w,rgb))
+        frm = np.expand_dims(frm,axis=0)
+        frm = np.moveaxis(frm, -1, 1)
+        if(np.max(frm)>1):
+            frm = frm/255.0
+        frames[i][:] = frm
+
+        i +=1
+    del rval
+    return frames
