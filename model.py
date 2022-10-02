@@ -9,17 +9,23 @@ import sys
 sys.path.append('./Violence_detector')
 
 class base(nn.Module):
-    def __init__(self, model='vgg19_bn',num_class=512):
+    def __init__(self, basemodel,timestep=30):
         super(base,self).__init__()
-        self.baseModel  =  timm.create_model(model, pretrained=True,num_classes=num_class)
-
+        self.basemodel=basemodel
+        self.timestep=timestep
     def forward(self,x):
-        batch_size,timestep, C,H, W = x.size()
-        self.x=x.contiguous().view(batch_size*timestep,C,H,W)
-        self.x=self.baseModel(self.x)
-        extracted=self.x.contiguous().view(batch_size,timestep,self.x.size(-1))
+        output=[]
+        for i in range(self.timestep):
+            #input one frame at a time into the basemodel
+            x_t = self.basemodel(x[:, i, :, :, :]) # Put each timestep image vector into vgg basemodel
+            output.append(x_t)
         
-        return extracted
+        x = torch.stack(output, dim=0).transpose_(0, 1) #Stack each timestep output
+
+        x_t=None
+        output=None
+        
+        return x
 
 class Pos_embedding(nn.Module):
     def __init__(self, dev , dim_emb=512,dropout=0.4,timestep=30):
@@ -56,7 +62,7 @@ class Transformer(nn.Module):
         return x
     
 class CNN_Vit(nn.Module):
-    def __init__(self,dev,timestep=40,basemodel='vgg19_bn',dim_emb=512,
+    def __init__(self,dev,timestep=40,model_name='vgg19_bn',dim_emb=512,
     mid_layer=1024,dropout=0.4,
     classes=1, encoder_layernum=6, 
     encoder_heads=8,activation='relu'):
@@ -70,8 +76,20 @@ class CNN_Vit(nn.Module):
         #self.drop=nn.Dropout(dropout)
         #self.relu=nn.ReLU()
         #self.linear2=nn.Linear(mid_layer,classes)
+        self.baseModel  =  timm.create_model(model_name, pretrained=True,num_classes=dim_emb)
 
-        self.model=nn.Sequential(base(model=basemodel, num_class=dim_emb),
+        i = 0
+        for child in self.baseModel.features.children():
+            
+            if i < 40:
+                for param in child.parameters():
+                    param.requires_grad = False #Freeze Vgg19_bn layer up until layer 40
+            else:
+                for param in child.parameters():
+                    param.requires_grad = True
+            i +=1
+
+        self.model=nn.Sequential(base(self.baseModel,timestep),
                             Pos_embedding(dev,dim_emb,dropout,timestep),
                             Transformer(dim_emb,head=encoder_heads,layers=encoder_layernum,actv=activation),
                             nn.Flatten(),

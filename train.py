@@ -20,7 +20,7 @@ import numpy as np
 import random
 sys.path.append('./Violence_detector')
 
-from utils import TaskDataset,path_list
+from util import TaskDataset,path_list
 from model import CNN_Vit
 
 
@@ -92,22 +92,17 @@ loss_fn, device,epochs,scheduler,threshold):
         for idx, (xx,labels) in enumerate(train_loader):
 
             xx=torch.as_tensor(xx,device=device,dtype=torch.float32)
-
-            optimizer.zero_grad()
-            
             labels=torch.as_tensor(labels,device=device,dtype=torch.float).view(-1,1)
             pred=model(xx) 
             loss= loss_fn(pred,labels)
 
-
-            pred_label=torch.sigmoid(pred)
-
-            final_label=(pred_label>threshold).float()*1
-
-            acc+=(torch.sum(final_label==labels).item()/len(labels))
-
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            pred_label=torch.sigmoid(pred)
+            final_label=(pred_label>threshold).float()*1
+            acc+=(torch.sum(final_label==labels).item()/len(labels))
 
             if idx%500==0:
                 print('Train Accuracy at {} batch: {:.4f}'.format(idx,acc/((idx+1))))
@@ -145,7 +140,7 @@ loss_fn, device,epochs,scheduler,threshold):
             best_val_loss=val_loss
             best_val_acc=val_acc
 
-        if best_val_loss>=val_loss:
+        if best_val_acc<val_acc:
             best_val_loss=val_loss
             best_val_acc=val_acc
 
@@ -156,6 +151,7 @@ loss_fn, device,epochs,scheduler,threshold):
 
             torch.save(model.state_dict(),best_path)
         
+        print('Current Loss is {:.4f} & Accuracy is {:.4f}'.format(val_loss,val_acc))
         print("Current Best Loss is {:.4f} & Accuracy is {:.4f}".format(best_val_loss,best_val_acc))
 
         last_path=os.path.join(ROOT/'best_param/last.pt')
@@ -249,7 +245,7 @@ if __name__ =='__main__':
 
     model=CNN_Vit(dev=device,timestep=args['timestep'],dropout=args['dropout'])
     criterion= nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.001,momentum=0.0001)
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.0001,momentum=0.0001)
     sched =  lr_scheduler.ReduceLROnPlateau(optimizer,mode='min', factor=0.5, patience=2 , verbose=True)
     epochs=args['epochs']
     threshold=args['threshold']

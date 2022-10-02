@@ -2,7 +2,7 @@ import cv2
 import sys
 sys.path.append('./Violence_detector')
 
-from utils import capture, infer_capture
+from util import capture, infer_capture
 from model import CNN_Vit
 import torch
 import argparse
@@ -13,7 +13,6 @@ from torchvision import datasets, models, transforms
 import imutils
 import time
 import uuid
-
 
 __file__='detect.py'
 ROOT = Path(os.path.dirname(os.path.realpath('__file__'))).absolute()
@@ -39,7 +38,7 @@ def inference(model,device,vid_input,threshold=0.6,timesep=10,rgb=3,h=200,w=200)
     else:
         return 'No_violence'
 
-def run(feed,model,device,threshold):
+def run(feed,person_model,model,device,threshold):
 
     cap=cv2.VideoCapture(feed)
     fp = cap.get(cv2.CAP_PROP_FPS)
@@ -61,7 +60,23 @@ def run(feed,model,device,threshold):
         
         label=inference(model,device,cap,threshold=threshold)
 
+
+
+        if label=='Violence Detected':
+            output=person_model(frame) # Feed frame to yolo when violence is detected
+            output=output.pandas().xyxy[0]
+            for i in range(output.shape[0]):
+                if output.loc[i,'class']==0 and output.loc[i,'confidence']>0.5:
+                    left=(int(output.loc[i,'xmin']),int(output.loc[i,'ymax']))
+                    right=(int(output.loc[i,'xmax']),int(output.loc[i,'ymin']))
+                    cv2.rectangle(frame,left,right,(0,200,0),2)
+                    cv2.putText(frame,'Person',(left[0],left[1]-20),cv2.FONT_HERSHEY_COMPLEX,1,(0,200,0),1)
+                                
+
         cv2.putText(frame,label,(0,h-10),cv2.FONT_HERSHEY_COMPLEX,0.7,(255,255,255),1)
+        cv2.putText(frame,'Threshold: {}'.format(threshold),(w-20,h-10),cv2.FONT_HERSHEY_COMPLEX,0.7,(255,255,255),1)
+
+        
         out.write(frame)
         cv2.imshow('Video Feed',frame)
         
@@ -124,6 +139,8 @@ if __name__=='__main__':
         device='cpu'
     
     model=CNN_Vit(dev=device,timestep=10)
-    model.load_state_dict(torch.load(args['weights']))
+    model.load_state_dict(torch.load(os.path.join(ROOT/'best_param'/args['weights'])))
     
-    run(raw_input,model,device,threshold=args['threshold'])
+    person_model = torch.hub.load('ultralytics/yolov5','yolov5s')  # or yolov5n - yolov5x6, custom
+
+    run(raw_input,person_model,model,device,threshold=args['threshold'])
